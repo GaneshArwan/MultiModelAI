@@ -1,0 +1,36 @@
+title: Potential API Key Harvesting or Abuse on MultiModelAI
+id: e4b8c7d2-7b91-4e2a-b6c1-9d4e8f2a1b4d
+status: stable
+level: high
+description: |
+  Detects suspicious volume of requests or malformed payloads on the MultiModelAI proxy
+  endpoint (/api/chat/[provider]), which could indicate attempts to exploit the API,
+  harvest client credentials, or conduct Denial of Service (DoS).
+references:
+  - https://attack.mitre.org/techniques/T1110/
+  - https://attack.mitre.org/techniques/T1071.001/
+author: Threat Detection Team
+date: 2026/06/25
+tags:
+  - attack.credential_access
+  - attack.t1110
+  - attack.command_and_control
+  - attack.t1071.001
+logsource:
+  category: webserver
+  product: nextjs
+detection:
+  selection_endpoint:
+    c-uri|contains: '/api/chat/'
+  selection_high_rate:
+    http_method: 'POST'
+  selection_status_codes:
+    status_code:
+      - 429 # Rate limited
+      - 400 # Bad request / Validation failed
+      - 500 # Internal Server Error / Sanitized error thrown
+  condition: selection_endpoint and selection_high_rate | count(c-ip) by c-ip > 100
+  timeframe: 1m
+falsepositives:
+  - Power users running complex model comparisons with high concurrency.
+  - Integration tests running against staging environments (add test IP ranges to allowlist).

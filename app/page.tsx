@@ -1,0 +1,476 @@
+'use client';
+
+import * as React from 'react';
+import { DEFAULT_MODELS, ModelConfig, ALL_MODELS, PROVIDERS } from '@/lib/providers';
+import { PROMPT_TEMPLATES } from '@/lib/templates';
+import { ResponseColumn } from '@/components/ResponseColumn';
+import { HistorySidebar } from '@/components/HistorySidebar';
+import { saveToHistory, ComparisonHistory } from '@/lib/history';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Send, LayoutGrid, RotateCcw, Key, Settings2, MessageSquarePlus, Clock, GitCompare, Download } from 'lucide-react';
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+
+export default function Home() {
+  const [prompt, setPrompt] = React.useState('');
+  const [systemPrompt, setSystemPrompt] = React.useState('');
+  const [selectedTemplate, setSelectedTemplate] = React.useState<string>('');
+  const [trigger, setTrigger] = React.useState(0);
+  const [isSyncScroll, setIsSyncScroll] = React.useState(true);
+  const [syncScrollTop, setSyncScrollTop] = React.useState(0);
+  const [isHistoryOpen, setIsHistoryOpen] = React.useState(false);
+  const [isCompareMode, setIsCompareMode] = React.useState(false);
+  
+  const resultsRef = React.useRef<ComparisonHistory['results']>([]);
+  
+  const [apiKeys, setApiKeys] = React.useState({
+    openai: '',
+    anthropic: '',
+    google: '',
+  });
+  
+  const [models, setModels] = React.useState<{
+    col1: ModelConfig;
+    col2: ModelConfig;
+    col3: ModelConfig;
+  }>({
+    col1: DEFAULT_MODELS.column1,
+    col2: DEFAULT_MODELS.column2,
+    col3: DEFAULT_MODELS.column3,
+  });
+
+  const [responses, setResponses] = React.useState<{
+    col1: string;
+    col2: string;
+    col3: string;
+  }>({ col1: '', col2: '', col3: '' });
+
+  const [customIds, setCustomIds] = React.useState<{
+    col1: string;
+    col2: string;
+    col3: string;
+  }>({ col1: '', col2: '', col3: '' });
+
+  const handleSend = () => {
+    if (!prompt.trim()) return;
+    resultsRef.current = [];
+    setResponses({ col1: '', col2: '', col3: '' });
+    setTrigger(prev => prev + 1);
+  };
+
+  const handleFinish = React.useCallback((result: ComparisonHistory['results'][0], columnId: 'col1' | 'col2' | 'col3') => {
+    resultsRef.current.push(result);
+    setResponses(prev => ({ ...prev, [columnId]: result.response }));
+    
+    if (resultsRef.current.length === 3) {
+      saveToHistory({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        prompt: prompt,
+        results: [...resultsRef.current],
+      });
+    }
+  }, [prompt]);
+
+  const handleLoadHistory = (entry: ComparisonHistory) => {
+    setPrompt(entry.prompt);
+    const restoredModels = { ...models };
+    const restoredCustomIds = { ...customIds };
+
+    entry.results.forEach((res, i) => {
+      const colKey = `col${i + 1}` as keyof typeof models;
+      const found = ALL_MODELS.find(m => m.id === res.modelId);
+      
+      if (found) {
+        restoredModels[colKey] = found;
+        restoredCustomIds[colKey] = '';
+      } else if (res.modelId) {
+        const providerMatch = ALL_MODELS.find(m => m.id.includes(res.modelName.toLowerCase()) || res.modelId.includes(m.provider));
+        const provider = providerMatch?.provider || 'openai';
+        
+        restoredModels[colKey] = PROVIDERS[provider].models.find(m => m.id.startsWith('custom-'))!;
+        restoredCustomIds[colKey] = res.modelId;
+      }
+    });
+
+    setModels(restoredModels);
+    setCustomIds(restoredCustomIds);
+    setIsHistoryOpen(false);
+  };
+
+  const handleTemplateChange = (templateId: string | null) => {
+    if (!templateId) return;
+    const template = PROMPT_TEMPLATES.find(t => t.id === templateId);
+    if (template) {
+      setSelectedTemplate(templateId);
+      setPrompt(template.prompt);
+    }
+  };
+
+  const handleReset = () => {
+    setPrompt('');
+    setSelectedTemplate('');
+    setResponses({ col1: '', col2: '', col3: '' });
+    setCustomIds({ col1: '', col2: '', col3: '' });
+  };
+
+  const handleExport = () => {
+    if (!prompt) return;
+    
+    const report = `# MultiModel AI Comparison Report
+Date: ${new Date().toLocaleString()}
+
+## Prompt
+${prompt}
+
+## Results
+
+### ${models.col1.name} (${models.col1.provider.toUpperCase()})
+${responses.col1 || 'No response captured.'}
+
+---
+
+### ${models.col2.name} (${models.col2.provider.toUpperCase()})
+${responses.col2 || 'No response captured.'}
+
+---
+
+### ${models.col3.name} (${models.col3.provider.toUpperCase()})
+${responses.col3 || 'No response captured.'}
+
+---
+Generated by MultiModelAI v1.0.0`;
+
+    const blob = new Blob([report], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `comparison-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleScroll = (scrollTop: number) => {
+    if (isSyncScroll) {
+      setSyncScrollTop(scrollTop);
+    }
+  };
+
+  return (
+    <main className="flex flex-col min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-950/20 via-background to-background">
+      <HistorySidebar 
+        isOpen={isHistoryOpen} 
+        onClose={() => setIsHistoryOpen(false)} 
+        onLoad={handleLoadHistory}
+      />
+
+      <header className="sticky top-0 z-50 glass border-b border-emerald-500/10 px-8 py-4 flex items-center justify-between shadow-2xl">
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20 cursor-pointer hover:bg-emerald-500/20 transition-colors" onClick={() => setIsHistoryOpen(true)}>
+            <Clock className="h-5 w-5 text-emerald-500" />
+          </div>
+          <h1 className="text-lg font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-100 uppercase">
+            Multimodel <span className="text-emerald-500/50 font-light italic">AI</span>
+          </h1>
+        </div>
+        
+        <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-4">
+            <button 
+              onClick={() => setIsCompareMode(!isCompareMode)}
+              className={`flex items-center space-x-2 px-4 py-1.5 rounded-full border transition-all ${isCompareMode ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-emerald-500/5 border-emerald-500/10 text-emerald-500/40 hover:border-emerald-500/20'}`}
+            >
+              <GitCompare className="h-3 w-3" />
+              <span className="text-[10px] font-bold tracking-widest uppercase">Compare Mode</span>
+            </button>
+
+            <div className="flex items-center space-x-2 bg-emerald-500/5 border border-emerald-500/10 rounded-full px-4 py-1.5 transition-all hover:border-emerald-500/20">
+              <span className="text-[10px] font-bold text-emerald-500/40 tracking-widest uppercase">Sync Scroll</span>
+              <input 
+                type="checkbox" 
+                checked={isSyncScroll} 
+                onChange={(e) => setIsSyncScroll(e.target.checked)}
+                className="w-3 h-3 accent-emerald-500 bg-black border-emerald-500/20 rounded focus:ring-0 cursor-pointer"
+              />
+            </div>
+          </div>
+          <Badge variant="outline" className="bg-emerald-500/5 text-emerald-500/70 border-emerald-500/20 text-[10px] font-mono tracking-widest px-3">
+            v1.0.0
+          </Badge>
+        </div>
+      </header>
+
+      <div className="flex-1 flex flex-col p-8 space-y-8 max-w-[1800px] mx-auto w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <section className="glass-emerald rounded-2xl overflow-hidden transition-all duration-300 hover:border-emerald-500/20 h-fit">
+            <Accordion>
+              <AccordionItem value="system-prompt" className="border-b-0">
+                <AccordionTrigger className="hover:no-underline py-4 px-6 group">
+                  <div className="flex items-center space-x-3 text-xs font-bold tracking-widest text-emerald-500/50 group-hover:text-emerald-400 transition-colors">
+                    <MessageSquarePlus className="h-4 w-4" />
+                    <span>UNIFIED SYSTEM PROTOCOL</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-6 px-6">
+                  <Textarea
+                    placeholder="Define behaviors, constraints, and persona..."
+                    className="min-h-[100px] text-sm bg-black/40 border-emerald-500/10 focus-visible:ring-emerald-500/20 text-emerald-100 placeholder:text-emerald-900/30 rounded-xl resize-none"
+                    value={systemPrompt}
+                    onChange={(e) => setSystemPrompt(e.target.value)}
+                  />
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </section>
+
+          <section className="glass-emerald rounded-2xl overflow-hidden transition-all duration-300 hover:border-emerald-500/20 h-fit">
+            <Accordion>
+              <AccordionItem value="api-keys" className="border-b-0">
+                <AccordionTrigger className="hover:no-underline py-4 px-6 group">
+                  <div className="flex items-center space-x-3 text-xs font-bold tracking-widest text-emerald-500/50 group-hover:text-emerald-400 transition-colors">
+                    <Settings2 className="h-4 w-4" />
+                    <span>MODULAR ENGINE CONFIGURATION</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-6 px-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500/40 flex items-center">OpenAI</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="sk-..." 
+                        value={apiKeys.openai}
+                        onChange={(e) => setApiKeys(prev => ({ ...prev, openai: e.target.value }))}
+                        className="h-9 bg-black/40 border-emerald-500/10 focus-visible:ring-emerald-500/20 text-emerald-100 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500/40 flex items-center">Anthropic</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="sk-ant-..." 
+                        value={apiKeys.anthropic}
+                        onChange={(e) => setApiKeys(prev => ({ ...prev, anthropic: e.target.value }))}
+                        className="h-9 bg-black/40 border-emerald-500/10 focus-visible:ring-emerald-500/20 text-emerald-100 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500/40 flex items-center">Google</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="AIza..." 
+                        value={apiKeys.google}
+                        onChange={(e) => setApiKeys(prev => ({ ...prev, google: e.target.value }))}
+                        className="h-9 bg-black/40 border-emerald-500/10 focus-visible:ring-emerald-500/20 text-emerald-100 text-xs"
+                      />
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </section>
+        </div>
+
+        <section className="space-y-6 relative">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Select value={selectedTemplate} onValueChange={handleTemplateChange}>
+                <SelectTrigger className="w-[240px] bg-emerald-500/5 border-emerald-500/10 text-emerald-100/70 hover:bg-emerald-500/10 transition-colors">
+                  <SelectValue placeholder="System Protocols" />
+                </SelectTrigger>
+                <SelectContent className="glass border-emerald-500/20">
+                  {PROMPT_TEMPLATES.map((t) => (
+                    <SelectItem key={t.id} value={t.id} className="focus:bg-emerald-500/20 focus:text-emerald-400">
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="icon" onClick={handleReset} title="Purge Prompt" className="border-emerald-500/10 hover:bg-emerald-500/10 text-emerald-500/50">
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="icon" onClick={handleExport} disabled={!responses.col1 && !responses.col2 && !responses.col3} title="Export Report" className="border-emerald-500/10 hover:bg-emerald-500/10 text-emerald-500/50">
+                <Download className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <Button 
+              onClick={handleSend} 
+              disabled={!prompt.trim()} 
+              className="px-10 h-12 glossy-emerald text-black font-black tracking-widest transition-all active:scale-95 group border-none"
+            >
+              <Send className="mr-2 h-4 w-4 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+              EXECUTE COMPARISON
+            </Button>
+          </div>
+          
+          <div className="relative group">
+            <Textarea
+              placeholder="Inject prompt for model synthesis..."
+              className="min-h-[160px] text-xl p-6 pb-12 resize-none bg-black/40 border-emerald-500/10 focus-visible:ring-emerald-500/20 text-emerald-50 placeholder:text-emerald-900/20 rounded-2xl transition-all duration-500 group-hover:border-emerald-500/20"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  handleSend();
+                }
+              }}
+            />
+            <div className="absolute bottom-4 left-6 flex items-center space-x-2 pointer-events-none">
+              <span className="text-[10px] font-black text-emerald-500/40 tracking-[0.2em] uppercase">Est. Payload:</span>
+              <Badge variant="outline" className="h-4 bg-emerald-500/5 text-emerald-500/60 border-emerald-500/20 text-[9px] font-mono px-2">
+                {Math.ceil(prompt.length / 4).toLocaleString()} TOKENS
+              </Badge>
+            </div>
+            <div className="absolute bottom-4 right-6 text-[10px] font-mono text-emerald-500/20 tracking-widest pointer-events-none">
+              CMD + ENTER TO RUN
+            </div>
+          </div>
+        </section>
+
+        <section className="hidden lg:grid grid-cols-3 gap-8 flex-1">
+          <ResponseColumn 
+            model={models.col1} 
+            onModelChange={(m) => setModels(prev => ({ ...prev, col1: m }))}
+            customModelId={customIds.col1}
+            onCustomModelIdChange={(id) => setCustomIds(prev => ({ ...prev, col1: id }))}
+            prompt={prompt}
+            systemPrompt={systemPrompt}
+            trigger={trigger}
+            apiKey={apiKeys[models.col1.provider]}
+            isSyncScroll={isSyncScroll}
+            onScroll={handleScroll}
+            syncScrollTop={syncScrollTop}
+            isCompareMode={isCompareMode}
+            compareWith={responses.col2 || responses.col3}
+            onFinish={(res) => handleFinish(res, 'col1')}
+          />
+          <ResponseColumn 
+            model={models.col2} 
+            onModelChange={(m) => setModels(prev => ({ ...prev, col2: m }))}
+            customModelId={customIds.col2}
+            onCustomModelIdChange={(id) => setCustomIds(prev => ({ ...prev, col2: id }))}
+            prompt={prompt}
+            systemPrompt={systemPrompt}
+            trigger={trigger}
+            apiKey={apiKeys[models.col2.provider]}
+            isSyncScroll={isSyncScroll}
+            onScroll={handleScroll}
+            syncScrollTop={syncScrollTop}
+            isCompareMode={isCompareMode}
+            compareWith={responses.col1 || responses.col3}
+            onFinish={(res) => handleFinish(res, 'col2')}
+          />
+          <ResponseColumn 
+            model={models.col3} 
+            onModelChange={(m) => setModels(prev => ({ ...prev, col3: m }))}
+            customModelId={customIds.col3}
+            onCustomModelIdChange={(id) => setCustomIds(prev => ({ ...prev, col3: id }))}
+            prompt={prompt}
+            systemPrompt={systemPrompt}
+            trigger={trigger}
+            apiKey={apiKeys[models.col3.provider]}
+            isSyncScroll={isSyncScroll}
+            onScroll={handleScroll}
+            syncScrollTop={syncScrollTop}
+            isCompareMode={isCompareMode}
+            compareWith={responses.col1 || responses.col2}
+            onFinish={(res) => handleFinish(res, 'col3')}
+          />
+        </section>
+
+        <section className="lg:hidden flex-1 flex flex-col">
+          <Tabs defaultValue="col1" className="flex-1 flex flex-col">
+            <TabsList className="bg-emerald-500/5 border border-emerald-500/10 p-1 rounded-xl mb-6">
+              <TabsTrigger value="col1" className="flex-1 text-[10px] font-bold tracking-widest uppercase data-[state=active]:bg-emerald-500 data-[state=active]:text-black">
+                {models.col1.provider}
+              </TabsTrigger>
+              <TabsTrigger value="col2" className="flex-1 text-[10px] font-bold tracking-widest uppercase data-[state=active]:bg-emerald-500 data-[state=active]:text-black">
+                {models.col2.provider}
+              </TabsTrigger>
+              <TabsTrigger value="col3" className="flex-1 text-[10px] font-bold tracking-widest uppercase data-[state=active]:bg-emerald-500 data-[state=active]:text-black">
+                {models.col3.provider}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="col1" className="flex-1 focus-visible:ring-0">
+              <ResponseColumn 
+                model={models.col1} 
+                onModelChange={(m) => setModels(prev => ({ ...prev, col1: m }))}
+                customModelId={customIds.col1}
+                onCustomModelIdChange={(id) => setCustomIds(prev => ({ ...prev, col1: id }))}
+                prompt={prompt}
+                systemPrompt={systemPrompt}
+                trigger={trigger}
+                apiKey={apiKeys[models.col1.provider]}
+                isSyncScroll={isSyncScroll}
+                onScroll={handleScroll}
+                syncScrollTop={syncScrollTop}
+                isCompareMode={isCompareMode}
+                compareWith={responses.col2 || responses.col3}
+                onFinish={(res) => handleFinish(res, 'col1')}
+              />
+            </TabsContent>
+            <TabsContent value="col2" className="flex-1 focus-visible:ring-0">
+              <ResponseColumn 
+                model={models.col2} 
+                onModelChange={(m) => setModels(prev => ({ ...prev, col2: m }))}
+                customModelId={customIds.col2}
+                onCustomModelIdChange={(id) => setCustomIds(prev => ({ ...prev, col2: id }))}
+                prompt={prompt}
+                systemPrompt={systemPrompt}
+                trigger={trigger}
+                apiKey={apiKeys[models.col2.provider]}
+                isSyncScroll={isSyncScroll}
+                onScroll={handleScroll}
+                syncScrollTop={syncScrollTop}
+                isCompareMode={isCompareMode}
+                compareWith={responses.col1 || responses.col3}
+                onFinish={(res) => handleFinish(res, 'col2')}
+              />
+            </TabsContent>
+            <TabsContent value="col3" className="flex-1 focus-visible:ring-0">
+              <ResponseColumn 
+                model={models.col3} 
+                onModelChange={(m) => setModels(prev => ({ ...prev, col3: m }))}
+                customModelId={customIds.col3}
+                onCustomModelIdChange={(id) => setCustomIds(prev => ({ ...prev, col3: id }))}
+                prompt={prompt}
+                systemPrompt={systemPrompt}
+                trigger={trigger}
+                apiKey={apiKeys[models.col3.provider]}
+                isSyncScroll={isSyncScroll}
+                onScroll={handleScroll}
+                syncScrollTop={syncScrollTop}
+                isCompareMode={isCompareMode}
+                compareWith={responses.col1 || responses.col2}
+                onFinish={(res) => handleFinish(res, 'col3')}
+              />
+            </TabsContent>
+          </Tabs>
+        </section>
+      </div>
+    </main>
+  );
+}
