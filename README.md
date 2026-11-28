@@ -6,6 +6,20 @@
 
 A web application for comparing algorithm outputs and metrics.
 
+## Live Demo
+
+Live Deployment: [multi-model-ai-ganesh.vercel.app](https://multi-model-ai-ganesh.vercel.app/)
+
+![Live Demo](docs/media/demo.gif)
+
+[Watch full MP4 walkthrough](docs/media/demo.mp4)
+
+## Screenshots
+
+| Comparison Grid | Modular Engine Configuration |
+| :---: | :---: |
+| ![Comparison Grid](docs/media/screenshot-desktop.png) | ![Modular Engine Configuration](docs/media/screenshot-interactive.png) |
+
 ## Workflow Architecture
 
 ```mermaid
